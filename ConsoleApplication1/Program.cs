@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace ConsoleApplication1
 {
@@ -48,43 +49,140 @@ namespace ConsoleApplication1
                 }        
             }
         }
+        /// <summary>
+        /// 创建任务
+        /// </summary>
+        /// <param name="queue"></param>
+        /// <returns></returns>
+        static async Task TaskProducer(ConcurrentQueue<CustomTask> queue)
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                await Task.Delay(50);
+                var workItem = new CustomTask { Id = i };
+                queue.Enqueue(workItem);
+                Console.WriteLine("task {0} has been posted",workItem.Id);
+            }
+        }
+        /// <summary>
+        /// 执行任务
+        /// </summary>
+        /// <param name="queue"></param>
+        /// <param name="name"></param>
+        /// <param name="token"></param>
+        /// <returns></returns>
+        static async Task TaskProcessor(ConcurrentQueue<CustomTask> queue,string name,CancellationToken token)
+        {
+            
+            CustomTask workItem;
+            bool dequeueSuccessful = false;
+            await GetRandomDelay();
+            do
+            {
+                dequeueSuccessful = queue.TryDequeue(out workItem);
+                if (dequeueSuccessful)
+                {
+                    Console.WriteLine("task {0} has been {1}", workItem.Id, name);
+                }
+                await GetRandomDelay();
+            } while (!token.IsCancellationRequested);
+        }
+        /// <summary>
+        /// 执行耗时的任务
+        /// </summary>
+        /// <returns></returns>
+        static Task GetRandomDelay()
+        {
+            int delay = new Random(DateTime.Now.Millisecond).Next(1500);
+            return Task.Delay(delay);
+        }
+        static async Task RunProgram()
+        {
+            var taskQueue = new ConcurrentQueue<CustomTask>();   //多线程安全队列
+            var cts = new CancellationTokenSource();  //信号量
+            var taskSource = Task.Run(() =>TaskProducer(taskQueue));
+            Task[] processors = new Task[4];   //同时启动四个任务处理队列中的任务
+            for (int i = 1; i <=4 ; i++)
+            {
+                string processId = i.ToString();
+                processors[i - 1] = Task.Run(() => TaskProcessor(taskQueue, "启动任务" + processId, cts.Token));
+            }
+            await taskSource;
+            cts.CancelAfter(TimeSpan.FromSeconds(2));
+            await Task.WhenAll(processors);
+        }
         static void Main(string[] args)
         {
-            #region  线程安全
-            _Tasks = new Task[_TaskNum];
-            m_Semaphore = new SemaphoreSlim(MAX_RESOURCE);
-            for (int i = 0; i <_TaskNum ; i++)
-            {
-                _Tasks[i] = Task.Factory.StartNew((num) =>
-                {
-                    var taskid = (int)num;
-                    Work1(taskid);
-                }, i);
-            }
-            var finalTask = Task.Factory.ContinueWhenAll(_Tasks, (tasks) =>
-            {
-                Task.WaitAll(_Tasks);
-                Console.WriteLine("==========================================================");
-                Console.WriteLine("ALL Phase is Completed");
-                Console.WriteLine("==========================================================");
-            });
+            #region  线程安全队列
+            Task task = RunProgram();
+            task.Wait();
+            
 
+            //ConcurrentQueue<string> queue = new ConcurrentQueue<string>();
+            //queue.Enqueue("队列1");
+            //queue.Enqueue("队列2");
+            //queue.Enqueue("队列3");
+            //queue.Enqueue("队列4");
+            //queue.Enqueue("队列5");
 
-
-            try
-            {
-                finalTask.Wait();
-            }
-            catch (AggregateException aex)
-            {
-                Console.WriteLine("Task failed And Canceled" + aex.ToString());
-            }
-            finally
-            {
-                m_Semaphore.Dispose();
-            }
-            Console.ReadLine();
+            //string resultQueue;
+            //if (queue.TryDequeue(out resultQueue))
+            //{
+            //    Console.WriteLine(resultQueue);
+            //}
+            //string resultQueue2;
+            //if (queue.TryDequeue(out resultQueue2))
+            //{
+            //    Console.WriteLine(resultQueue2);
+                
+                
+            //}
             #endregion
+            #region  线程安全
+            //_Tasks = new Task[_TaskNum];
+            //m_Semaphore = new SemaphoreSlim(MAX_RESOURCE);
+            //for (int i = 0; i <_TaskNum ; i++)
+            //{
+            //    _Tasks[i] = Task.Factory.StartNew((num) =>
+            //    {
+            //        var taskid = (int)num;
+            //        Work1(taskid);
+            //    }, i);
+            //}
+            //var finalTask = Task.Factory.ContinueWhenAll(_Tasks, (tasks) =>
+            //{
+            //    Task.WaitAll(_Tasks);
+            //    Console.WriteLine("==========================================================");
+            //    Console.WriteLine("ALL Phase is Completed");
+            //    Console.WriteLine("==========================================================");
+            //});
+
+
+
+            //try
+            //{
+            //    finalTask.Wait();
+            //}
+            //catch (AggregateException aex)
+            //{
+            //    Console.WriteLine("Task failed And Canceled" + aex.ToString());
+            //}
+            //finally
+            //{
+            //    m_Semaphore.Dispose();
+            //}
+            //Console.ReadLine();
+
+
+
+
+
+
+
+            #endregion
+
+
+
             var A = new List<int> { 1, 1, 2, 3, 4 };
             var B = new List<int> { 4, 5, 5, 6, 7 };
 
@@ -225,6 +323,11 @@ namespace ConsoleApplication1
 
 
           
+        }
+
+        public class CustomTask
+        {
+            public int Id { get; set; }
         }
 
         public class A
